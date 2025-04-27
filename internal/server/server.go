@@ -11,9 +11,9 @@ import (
 	"time"
 )
 
-func RunBackend(logger *slog.Logger, port string, wg *sync.WaitGroup) {
+func RunBackend(ctx context.Context, logger *slog.Logger, port string, wg *sync.WaitGroup) {
 	defer wg.Done()
-	// Создаем новый ServeMux для каждого сервера
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -24,39 +24,23 @@ func RunBackend(logger *slog.Logger, port string, wg *sync.WaitGroup) {
 		Addr:    ":" + port,
 		Handler: mux,
 	}
-	if port == "9001" {
-		logger.Info("Сервер недоступен", "port", port)
-		return
-	}
+
 	go func() {
 		logger.Info("Запуск сервера", "port", port)
-		if err := server.ListenAndServe(); err != nil {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("Ошибка запуска сервера", "port", port, "error", err)
 		}
 	}()
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	sig := <-quit
+	<-ctx.Done() // ждём сигнал отмены контекста
 
-	logger.Info("Received shutdown signal", "signal", sig)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	logger.Info("Shutting down server", "port", port)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	logger.Info("Shutting down server...")
-	if err := server.Shutdown(ctx); err != nil {
-		logger.Error("Server shutdown failed", "error", err)
-		return
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		logger.Error("Ошибка при остановке сервера", "port", port, "error", err)
 	}
-
-	select {
-	case <-ctx.Done():
-		logger.Warn("Shutdown timeout exceeded")
-	default:
-		logger.Info("Server exited gracefully")
-	}
-
 }
 
 func Run(logger *slog.Logger, handler http.Handler, port string, shutdownTimeout time.Duration) {
