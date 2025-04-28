@@ -32,7 +32,7 @@ func RunBackend(ctx context.Context, logger *slog.Logger, port string, wg *sync.
 		}
 	}()
 
-	<-ctx.Done() // ждём сигнал отмены контекста
+	<-ctx.Done()
 
 	logger.Info("Shutting down server", "port", port)
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

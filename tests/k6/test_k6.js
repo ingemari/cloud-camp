@@ -4,6 +4,7 @@ import { check } from 'k6';
 export let options = {
     vus: 1000,          // 1000 виртуальных пользователей
     iterations: 5000,   // всего 5000 запросов
+    rps: 1000,          // response per second
     thresholds: {
         http_req_duration: ['p(95)<500'], // 95% запросов быстрее 500мс
     },

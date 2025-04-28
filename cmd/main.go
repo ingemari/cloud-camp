@@ -6,6 +6,7 @@ import (
 	"cloud/internal/graceful"
 	"cloud/internal/logs"
 	"cloud/internal/proxy"
+	"cloud/internal/ratelimit"
 	"cloud/internal/server"
 	"context"
 	"log/slog"
@@ -26,11 +27,24 @@ func main() {
 		return
 	}
 
+	// создаем ограничитель запросов
+	rateLimiter := ratelimit.NewRateLimiter()
+
 	// Создаём балансировщик
 	b := balancer.NewBalancer(cfg.Backends)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		clientIP := r.RemoteAddr
+		clientIP = strings.Split(clientIP, ":")[0] // убрать порт из адреса
+
+		// Проверяем RateLimiter
+		if !rateLimiter.AllowRequest(clientIP) {
+			http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
+			logger.Warn("Rate limit exceeded", "client", clientIP)
+			return
+		}
+
 		maxAttempts := len(cfg.Backends)
 
 		for i := 0; i < maxAttempts; i++ {
@@ -43,7 +57,7 @@ func main() {
 			proxyServer, err := proxy.NewReverseProxy(target)
 			if err != nil {
 				logger.Error("Ошибка создания прокси: ", "error", err.Error())
-				continue // пробуем следующий сервер
+				continue
 			}
 
 			done := make(chan bool, 1)
@@ -58,11 +72,9 @@ func main() {
 			select {
 			case success := <-done:
 				if !success {
-					// Ошибка на этом бэкенде — пробуем следующий
 					continue
 				}
 			default:
-				// Если всё прошло нормально — выход
 				return
 			}
 		}
@@ -82,10 +94,6 @@ func main() {
 		wg.Add(1)
 		go server.RunBackend(ctx, logger, port, &wg)
 	}
-
-	//wg.Add(2)
-	//go server.RunBackend(ctx, logger, "9001", &wg)
-	//go server.RunBackend(ctx, logger, "9002", &wg)
 
 	server.Run(logger, mux, cfg.Port, 30*time.Second)
 }
