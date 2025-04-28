@@ -8,7 +8,7 @@ import (
 type Config struct {
 	Port     string   `json:"port"`
 	Backends []string `json:"backends"`
-	LogLevel string   `json:"log_level"`
+	//LogLevel string   `json:"log_level"`
 }
 
 func LoadConfig(filepath string) (*Config, error) {

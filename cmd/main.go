@@ -30,56 +30,14 @@ func main() {
 	// создаем ограничитель запросов
 	rateLimiter := ratelimit.NewRateLimiter()
 
-	// Создаём балансировщик
+	// создаём балансировщик
 	b := balancer.NewBalancer(cfg.Backends)
 
+	// мультиплексор
 	mux := http.NewServeMux()
+	// эндпоинт
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		clientIP := r.RemoteAddr
-		clientIP = strings.Split(clientIP, ":")[0] // убрать порт из адреса
-
-		// Проверяем RateLimiter
-		if !rateLimiter.AllowRequest(clientIP) {
-			http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
-			logger.Warn("Rate limit exceeded", "client", clientIP)
-			return
-		}
-
-		maxAttempts := len(cfg.Backends)
-
-		for i := 0; i < maxAttempts; i++ {
-			target := b.NextBackend()
-			if target == "" {
-				http.Error(w, "Нет доступных бэкендов", http.StatusServiceUnavailable)
-				return
-			}
-
-			proxyServer, err := proxy.NewReverseProxy(target)
-			if err != nil {
-				logger.Error("Ошибка создания прокси: ", "error", err.Error())
-				continue
-			}
-
-			done := make(chan bool, 1)
-
-			proxyServer.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, e error) {
-				logger.Error("Ошибка проксирования на " + target + ": " + e.Error())
-				done <- false
-			}
-
-			proxyServer.ServeHTTP(w, r)
-
-			select {
-			case success := <-done:
-				if !success {
-					continue
-				}
-			default:
-				return
-			}
-		}
-
-		http.Error(w, "Нет доступных бэкендов", http.StatusServiceUnavailable)
+		handleProxyRequest(w, r, logger, rateLimiter, b, cfg.Backends)
 	})
 
 	var wg sync.WaitGroup
@@ -96,4 +54,43 @@ func main() {
 	}
 
 	server.Run(logger, mux, cfg.Port, 30*time.Second)
+}
+
+func handleProxyRequest(w http.ResponseWriter, r *http.Request, logger *slog.Logger, rateLimiter *ratelimit.RateLimiter, b *balancer.Balancer, backends []string) {
+	clientIP := strings.Split(r.RemoteAddr, ":")[0]
+
+	if !rateLimiter.AllowRequest(clientIP) {
+		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
+		logger.Warn("Rate limit exceeded", "client", clientIP)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	r = r.WithContext(ctx)
+
+	for i := 0; i < len(backends); i++ {
+		target, err := b.NextBackend(logger)
+		if err != nil {
+			logger.Warn("Недоступный бэкенд сервер", "address", backends[i])
+			continue
+		}
+
+		proxyServer, err := proxy.NewReverseProxy(target)
+		if err != nil {
+			logger.Error("Ошибка создания прокси", "target", target, "error", err)
+			continue
+		}
+
+		proxyServer.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, e error) {
+			logger.Error("Ошибка проксирования", "target", target, "error", e)
+			http.Error(rw, "Проблема на бэкенде", http.StatusBadGateway)
+		}
+
+		proxyServer.ServeHTTP(w, r)
+		return
+	}
+
+	http.Error(w, "Нет доступных бэкендов", http.StatusServiceUnavailable)
+	logger.Warn("Нет доступных бэкендов")
 }

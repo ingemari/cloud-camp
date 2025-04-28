@@ -18,6 +18,8 @@ func RunBackend(ctx context.Context, logger *slog.Logger, port string, wg *sync.
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		logger.Info("Ответ от сервера", "port", port)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("OK"))
 	})
 
 	server := &http.Server{

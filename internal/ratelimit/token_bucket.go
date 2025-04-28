@@ -39,7 +39,6 @@ func (rl *RateLimiter) AddClient(clientID string, capacity, refillRate int, refi
 	}
 }
 
-// AllowRequest — проверить, можно ли пропустить запрос клиента
 func (rl *RateLimiter) AllowRequest(clientID string) bool {
 	rl.mu.Lock()
 	bucket, exists := rl.buckets[clientID]
@@ -63,7 +62,7 @@ func (b *Bucket) takeToken() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.refill() // Сначала пополним ведро
+	b.refill()
 
 	if b.tokens > 0 {
 		b.tokens--
