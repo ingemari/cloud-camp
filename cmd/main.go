@@ -37,8 +37,10 @@ func main() {
 	mux := http.NewServeMux()
 	// эндпоинт
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		handleProxyRequest(w, r, logger, rateLimiter, b, cfg.Backends)
+		handleProxyRequest(cfg, w, r, logger, rateLimiter, b, cfg.Backends)
 	})
+	// TODO : Пример эндпоинта: POST /clients { "client_id": "user1", "capacity": 100, "rate_per_sec": 10 }
+	// TODO : repository Redis с клиентами
 
 	var wg sync.WaitGroup
 	ctx, cancel := context.WithCancel(context.Background())
@@ -56,10 +58,10 @@ func main() {
 	server.Run(logger, mux, cfg.Port, 30*time.Second)
 }
 
-func handleProxyRequest(w http.ResponseWriter, r *http.Request, logger *slog.Logger, rateLimiter *ratelimit.RateLimiter, b *balancer.Balancer, backends []string) {
+func handleProxyRequest(cfg *config.Config, w http.ResponseWriter, r *http.Request, logger *slog.Logger, rateLimiter *ratelimit.RateLimiter, b *balancer.Balancer, backends []string) {
 	clientIP := strings.Split(r.RemoteAddr, ":")[0]
 
-	if !rateLimiter.AllowRequest(clientIP) {
+	if !rateLimiter.AllowRequest(cfg, clientIP) {
 		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
 		logger.Warn("Rate limit exceeded", "client", clientIP)
 		return

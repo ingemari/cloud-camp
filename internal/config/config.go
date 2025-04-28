@@ -8,6 +8,8 @@ import (
 type Config struct {
 	Port     string   `json:"port"`
 	Backends []string `json:"backends"`
+	Capacity string   `json:"capacity"`
+	Rate     string   `json:"rate"`
 	//LogLevel string   `json:"log_level"`
 }
 

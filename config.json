@@ -4,5 +4,7 @@
         "http://localhost:9001",
         "http://localhost:9002",
         "http://localhost:9003"
-    ]
+    ],
+    "capacity" : "1000",
+    "rate": "1000"
 }

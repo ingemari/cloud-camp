@@ -1,6 +1,8 @@
 package ratelimit
 
 import (
+	"cloud/internal/config"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -39,15 +41,17 @@ func (rl *RateLimiter) AddClient(clientID string, capacity, refillRate int, refi
 	}
 }
 
-func (rl *RateLimiter) AllowRequest(clientID string) bool {
+func (rl *RateLimiter) AllowRequest(cfg *config.Config, clientID string) bool {
 	rl.mu.Lock()
 	bucket, exists := rl.buckets[clientID]
 	if !exists {
+		capacity, _ := strconv.Atoi(cfg.Capacity)
+		rate, _ := strconv.Atoi(cfg.Rate)
 		// Если клиента нет — автоматически создать ему bucket
 		bucket = &Bucket{
-			capacity:     1000,        // лимит по умолчанию
-			tokens:       1000,        // начальное количество токенов
-			refillRate:   1000,        // сколько токенов пополняется
+			capacity:     capacity,    // лимит по умолчанию из конфига
+			tokens:       capacity,    // начальное количество токенов
+			refillRate:   rate,        // сколько токенов пополняется из конфига
 			refillPeriod: time.Second, // интервал пополнения
 			lastRefill:   time.Now(),
 		}
