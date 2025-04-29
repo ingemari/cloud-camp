@@ -4,10 +4,14 @@ import (
 	"cloud/internal/balancer"
 	"cloud/internal/config"
 	"cloud/internal/graceful"
+	"cloud/internal/handler"
 	"cloud/internal/logs"
 	"cloud/internal/proxy"
 	"cloud/internal/ratelimit"
+	"cloud/internal/repository"
 	"cloud/internal/server"
+	"cloud/internal/service"
+	"cloud/internal/storage"
 	"context"
 	"log/slog"
 	"strings"
@@ -27,24 +31,42 @@ func main() {
 		return
 	}
 
-	// создаем ограничитель запросов
-	rateLimiter := ratelimit.NewRateLimiter()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
+	// клиент redis
+	rdb := storage.NewRedisClient()
+	v, err := rdb.Ping(ctx).Result()
+	logger.Info("Database ping", "result", v)
+	if err != nil {
+		logger.Error("Database init error!")
+	}
+	defer rdb.Close()
+
+	// создаем ограничитель запросов
+	rateLimiter := ratelimit.NewRateLimiter(logger, rdb)
 	// создаём балансировщик
 	b := balancer.NewBalancer(cfg.Backends)
 
+	// этот блок тоже нужно вынести в router
 	// мультиплексор
 	mux := http.NewServeMux()
 	// эндпоинт
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		handleProxyRequest(cfg, w, r, logger, rateLimiter, b, cfg.Backends)
 	})
-	// TODO : Пример эндпоинта: POST /clients { "client_id": "user1", "capacity": 100, "rate_per_sec": 10 }
-	// TODO : repository Redis с клиентами
+	// repo
+	userRepo := repository.NewUserRepository(rdb, logger)
+	// servcice
+	userService := service.NewUserService(userRepo, logger)
+	// handler
+	userHandler := handler.NewAuthHandler(userService, logger)
+	// endpoints
+	// ручки с добавлением уникальных лимитов в редис а так же их удаления
+	mux.HandleFunc("/clients", userHandler.HandleAddUser)
+	mux.HandleFunc("/clients/delete", userHandler.HandleDeleteUser)
 
 	var wg sync.WaitGroup
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// ловим сигнал завершения
 	go graceful.WaitForShutdown(cancel, logger)
@@ -58,6 +80,7 @@ func main() {
 	server.Run(logger, mux, cfg.Port, 30*time.Second)
 }
 
+// не хватило времени ее вынести в роутинг пакет
 func handleProxyRequest(cfg *config.Config, w http.ResponseWriter, r *http.Request, logger *slog.Logger, rateLimiter *ratelimit.RateLimiter, b *balancer.Balancer, backends []string) {
 	clientIP := strings.Split(r.RemoteAddr, ":")[0]
 
