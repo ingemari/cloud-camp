@@ -57,7 +57,7 @@ func main() {
 	})
 	// repo
 	userRepo := repository.NewUserRepository(rdb, logger)
-	// servcice
+	// service
 	userService := service.NewUserService(userRepo, logger)
 	// handler
 	userHandler := handler.NewAuthHandler(userService, logger)

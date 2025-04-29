@@ -44,7 +44,7 @@ func (b *Balancer) NextBackend(logger *slog.Logger) (string, error) {
 }
 
 func isBackendAlive(logger *slog.Logger, target string) bool {
-	address := strings.TrimPrefix(target, "http://") // безопаснее
+	address := strings.TrimPrefix(target, "http://")
 	conn, err := net.DialTimeout("tcp", address, 100*time.Millisecond)
 	if err != nil {
 		logger.Warn("Бэкенд недоступен", "backend", target)
